@@ -1,9 +1,21 @@
-﻿/* simpleLocalProxy.jsx
- * 
+﻿/* 
+ * simpleLocalProxy.jsx v1.0
+ * https://github.com/berniebernie/after-effects-scripts
  *    
+ * Copyright 2015, bernie@berniebernie.fr
  *    
- *    
- *    
+ * Licensed under the MIT license:
+ * http://www.opensource.org/licenses/MIT  
+ *
+ * This script embeds js-md5 from github: https://github.com/emn178/js-md5 for practical reasons
+ *
+ * Script that can be launched or put in the scriptui folder of After Effects to be used as a panel
+ *  
+ * Copies footage from its current location to one chosen by the user (defaults to /tmp/) and allows to
+ * switch original-proxy with a button
+ * To be used when file i/o is slow
+ *
+ *
  */
 
 
@@ -17,6 +29,19 @@
  * Licensed under the MIT license:
  * http://www.opensource.org/licenses/MIT
  */
+
+
+
+/************************************************************************************************************
+ *
+ *
+ *
+ *      js-md5.js
+ *
+ *
+ *
+ ************************************************************************************************************/
+
 
 (function(root, undefined){
   'use strict';
@@ -171,38 +196,28 @@
 }(this));
 
 
-/************************************************************************************************************/
+/************************************************************************************************************
+ *
+ *
+ *
+ *      simpleLocalProxy.jsx 
+ *
+ *
+ *
+ ************************************************************************************************************/
 
 
 function e(str){
     $.writeln(str);
 }
-e(jsmd5("poopdog"));
 
-
-function pathToWinPath(path){
-        /*var str = path.toString().replace(/\//, "");
-        str = str.replace(/\//, ":/");
-        str = str.replace(/%20/g, " ");
-        str = str.replace(/\//g, "\\");*/
+function pathToLocalizedPath(path){
         f = new File(path);
         return f.fsName.toString();
 }
-function ismd5available(){
-    var currentScript = new File($.fileName);
-    var md5Script = new File(currentScript.path.toString()+"/md5.js");
-    //if(md5Script.exists){
-    //    $.evalFile(md5Script);
-        //e(calcMD5("hello bobby"));
-    //}
-    if(md5Script.exists){
-        return (md5Script.toString());
-    }else{
-        return false;
-    }
-}
+
 function sequenceFilesWildcard(path){ 
-    //returns everything before a sequence's image number, and the extesion: /c/path/file.0555.exr > { /c/pathfile. ; .exr }
+    //returns false or an array with everything before a sequence's image number, and the extension: /c/path/file.0555.exr > { /c/pathfile. ; .exr }
     var myRegexp = /(.*[\.\-_a-z])[\d]{1,}(\.[a-zA-Z]*)$/g; 
     var match = myRegexp.exec(path);
     if(!match){
@@ -212,6 +227,7 @@ function sequenceFilesWildcard(path){
     }
 }
 function grabPaths(footage){
+    //returns false or the path of the given footage, if it's a file sequence, returns the path with a wildcard for the current frame number: /c/path/file.0555.exr > /c/path/file.*.exr
     var f = footage;
     returnpath = false;
     if(f instanceof FootageItem && f.file != null){       
@@ -220,14 +236,11 @@ function grabPaths(footage){
             var pathFromRegex = sequenceFilesWildcard(source);
             if(pathFromRegex){
                 returnpath = pathFromRegex[1]+"*"+pathFromRegex[2];
-                //e("sequence: "+pathFromRegex[1]+"*"+pathFromRegex[2]);
             }else{
                 returnpath = source;
-                //e("movie: "+source);
             }
         }else{
             returnpath = source;
-            //e("still: "+source);
         }
     }
     return returnpath;
@@ -237,47 +250,66 @@ function grabFootagePathsAndCopyToLocal(){
     //main worker function
     
     var sel = app.project.selection;
-    if(sel.length < 1){
-        alert("Select footage first");    
+    if(sel.length < 1 || !(sel[0] instanceof FootageItem)){
+        alert("Select footage(s) and try again");    
     }else{
         
         var debugcheck = (getPref("debug","false")=="true")?true:false;
         var useforcecopy = (getPref("forcecopy","false")=="true")?true:false;
         
-        var batchFile = "@echo off\nREM batch file to copy After Effects footage to local storage";
+        var isMacintosh = !($.os.toLowerCase().indexOf("windows")==-1);
+        var localSaveDir = getPref("localSaveDir",Folder.temp.toString());
+        
+        var batchFile = (isMacintosh)?"# bash file used to copy After Effects footage to local storage":"@echo off\nREM batch file to copy After Effects footage to local storage";
         for(i=0;i<app.project.selection.length;i++){
             if(!sel[i].useProxy){
                 //grab path from current selection item
                 var curPath = grabPaths(sel[i]);
                 var fileName = curPath.split('/').pop();
                 var dir = curPath.substring(0,curPath.lastIndexOf('/')+1);
-                var localSaveDir = getPref("localSaveDir",Folder.temp.toString());
+                
                 var outputDir = "";
                 if(getPref("usemd5",true)=="true"){
-                    var md5Script = new File(ismd5available());
-                    $.evalFile(md5Script);
-                    outputDir =localSaveDir + "/"+ md5(dir);
+                    outputDir = localSaveDir + "/"+ jsmd5(dir);
                 }else{
-                    outputDir =localSaveDir + dir;
+                    outputDir = localSaveDir + dir;
                 }
-                //windows only for now
-                
-                batchFile += "\nrobocopy ";
-                batchFile += pathToWinPath(dir);
-                //robocopy filename requires a wildcard, even if it's a single file
-                e(fileName);
-                batchFile += " \""+fileName.replace(/%20/g, " ")+"*\" ";
-                batchFile += pathToWinPath(outputDir);
-                batchFile += ((useforcecopy)?" /XO":"")+" /FFT"+((debugcheck)?"":" /NJH /NJS");
-                //e(batchFile);
+            
+                if(isMacintosh){
+                    //macos uses rsync to copy files
+                    
+                    batchFile += "\nrsync -v -a ";
+                    batchFile += ((useforcecopy)?"-I ":"");
+                    batchFile += dir+fileName;
+                    batchFile += " "+outputDir;
+                    
+                }else{
+                    //windows uses robocopy
+                    
+                    batchFile += "\nrobocopy ";
+                    batchFile += pathToLocalizedPath(dir);
+                    //robocopy filename requires a wildcard, even if it's a single file
+                    batchFile += " \""+fileName.replace(/%20/g, " ")+"*\" ";
+                    batchFile += pathToLocalizedPath(outputDir);
+                    batchFile += ((useforcecopy)?" /XO":"")+" /FFT"+((debugcheck)?"":" /NJH /NJS");
+                }
             }
         }
-        batchFile += ((debugcheck)?"\npause":"");
-        var txtFile = new File(localSaveDir+"/AFX footage copy.bat");
-        txtFile.open("w","TEXT","????");
-        txtFile.write(batchFile);
-        txtFile.close();
-        txtFile.execute();
+        batchFile += ((debugcheck)?(isMacintosh?"\nread a":"\npause"):""); //nested tertiary operators, sue me
+        
+        var txtFile;
+        if(isMacintosh){
+            txtFile = new File(localSaveDir+"/AFX_footage_copy.sh");
+        }else{
+            txtFile = new File(localSaveDir+"/AFX_footage_copy.bat");
+        }
+        if(txtFile.open("w","TEXT","????") == true){
+            txtFile.write(batchFile);
+            txtFile.close();
+            txtFile.execute();
+        }else{
+            alert("Write permission denied on\n"+localSaveDir);
+        }
         //txtFile.remove();
     }
 }
@@ -297,11 +329,9 @@ function grabFootagePathsAndSwitchProxy(){
                 var localSaveDir = getPref("localSaveDir",Folder.temp.toString());
                 var outputDir = "";
                 if(getPref("usemd5",true)=="true"){
-                    var md5Script = new File(ismd5available());
-                    $.evalFile(md5Script);
-                    outputDir =localSaveDir + "/"+ md5(dir);
+                    outputDir = localSaveDir + "/"+ jsmd5(dir);
                 }else{
-                    outputDir =localSaveDir + dir;
+                    outputDir = localSaveDir + dir;
                 }
                 var proxyFilePath = outputDir+"/"+fileName;
                 var proxyFile = new File(proxyFilePath);
@@ -354,13 +384,16 @@ function simpleLocalProxy(thisObj) {
         alert("You need to check \"Allow Scripts to Write Files and Access Network\" in your preferences for this script to work");
     }else{
         var localFolder = getPref("localSaveDir",Folder.temp.toString());
-        localFolder = pathToWinPath(localFolder).replace(/\\/g,"\\\\");
+        localFolder = pathToLocalizedPath(localFolder).replace(/\\/g,"\\\\");
+        
+        // UI DESCRIPTION
+        
         res = "group { alignment: ['fill','fill'], alignChildren: ['fill','top'], orientation: 'column', \
                         cols: Group {orientation:'row',align:'left', alignChildren:['fill','top'],\
                             col1: Group {orientation:'column',align:'left', alignChildren:['fill','center'],\
                                 saveDirText: StaticText {text: 'Local Copy folder setup: '},\
                                 saveDirOptions: Group {orientation:'column',align:'left', alignChildren:['fill','center'],\
-                                    usemd5rbox: RadioButton {text: ' Simple',helpTip:'Uses a unique folder name per footage, requires md5.js',enabled:false,active:false,value:true},\
+                                    usemd5rbox: RadioButton {text: ' Simple',helpTip:'Uses a unique folder name per footage, requires md5.js',value:true},\
                                     usepathrbox: RadioButton {text: ' Copy Folder Structure',helpTip:'Copies the target folder structure inside the local folder'}}},\
                             col2: Group {orientation:'column',align:'left', alignChildren:['fill','center'],\
                                 optionsText: StaticText {text: 'Options: '},\
@@ -382,21 +415,15 @@ function simpleLocalProxy(thisObj) {
         
         //radio buttons and checkboxes prefs
           
-            if(ismd5available()){
-                var usemd5 = getPref("usemd5",true);
-                pan.grp.cols.col1.saveDirOptions.usemd5rbox.value = (usemd5=="true")?true:false;
-                pan.grp.cols.col1.saveDirOptions.usepathrbox.value = (usemd5=="true")?false:true;
-                pan.grp.cols.col1.saveDirOptions.usemd5rbox.enabled = true;
-            }else{
-                setPref("usemd5",false);
-                pan.grp.cols.col1.saveDirOptions.usemd5rbox.value = false;
-                pan.grp.cols.col1.saveDirOptions.usepathrbox.value = true;
-                pan.grp.cols.col1.saveDirOptions.usemd5rbox.enabled = false;
-            }
-            var useforcecopy = getPref("forcecopy","false");
-            pan.grp.cols.col2.optionsGrp.forcecopyChkbox.value = (useforcecopy=="true")?true:false;
-            var debugcheck = getPref("debug","false");
-            pan.grp.cols.col2.optionsGrp.debugChkbox.value = (debugcheck=="true")?true:false;
+
+        var usemd5 = getPref("usemd5",true);
+        pan.grp.cols.col1.saveDirOptions.usemd5rbox.value = (usemd5=="true")?true:false;
+        pan.grp.cols.col1.saveDirOptions.usepathrbox.value = (usemd5=="true")?false:true;
+
+        var useforcecopy = getPref("forcecopy","false");
+        pan.grp.cols.col2.optionsGrp.forcecopyChkbox.value = (useforcecopy=="true")?true:false;
+        var debugcheck = getPref("debug","false");
+        pan.grp.cols.col2.optionsGrp.debugChkbox.value = (debugcheck=="true")?true:false;
 
         pan.layout.resize();
         pan.onResizing = pan.onResize = function () {this.layout.resize();}
@@ -404,22 +431,23 @@ function simpleLocalProxy(thisObj) {
         // UI ACTIONS
         
         //browse button
-            pan.grp.cols2.browseBut.onClick = function(){
+        pan.grp.cols2.browseBut.onClick = function(){
                 localSaveDir = new Folder(getPref("localSaveDir",Folder.temp.toString()));
                 localSaveDir.execute();
-            }
+        }
         //choose local folder button
         pan.grp.cols2.localSaveDirBut.onClick = function(){
             localSaveDir = new Folder(getPref("localSaveDir",Folder.temp.toString()));
             o = localSaveDir.selectDlg("Choose folder to copy footage to");
             if(o!=null){
                     setPref("localSaveDir",o.toString());
-                    pan.grp.curentDirTxt.text = pathToWinPath(o.toString());//.replace(/\\/g,"\\\\");
+                    pan.grp.curentDirTxt.text = pathToLocalizedPath(o.toString());//.replace(/\\/g,"\\\\");
             }
         }
     
-        //copy footages button (launches the 'guts' of this script)
         pan.grp.copyFootageBut.onClick = function(){
+            //copy footages button (launches the 'guts' of this script)
+            
             //save prefs
             var usemd5 = pan.grp.cols.col1.saveDirOptions.usemd5rbox.value;
             var useforcecopy = pan.grp.cols.col2.optionsGrp.forcecopyChkbox.value;
@@ -427,32 +455,24 @@ function simpleLocalProxy(thisObj) {
             setPref("usemd5",usemd5);
             setPref("forcecopy",useforcecopy);
             setPref("debug",debugcheck);
-             
-
-             
-            //this.text = md5("opying");
+            
             grabFootagePathsAndCopyToLocal();
         }
-        //checks for a local copy of the footage, and switches to a proxy accordingly 
+        
         pan.grp.switchproxyBut.onClick = function(){
+            //checks for a local copy of the footage, and switches to a proxy accordingly 
+            
             //save prefs
             var usemd5 = pan.grp.cols.col1.saveDirOptions.usemd5rbox.value;
             var useforcecopy = pan.grp.cols.col2.optionsGrp.forcecopyChkbox.value;
             var debugcheck = pan.grp.cols.col2.optionsGrp.debugChkbox.value;
+            
             setPref("usemd5",usemd5);
             setPref("forcecopy",useforcecopy);
             setPref("debug",debugcheck);
-             
 
-             
-            //this.text = md5("opying");
             grabFootagePathsAndSwitchProxy();
         }
-
-
-        
-        
-
     }
     if (pan instanceof Window) pan.show() ;
 }
