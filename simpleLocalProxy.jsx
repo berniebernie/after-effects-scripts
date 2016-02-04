@@ -257,7 +257,7 @@ function grabFootagePathsAndCopyToLocal(){
         var debugcheck = (getPref("debug","false")=="true")?true:false;
         var useforcecopy = (getPref("forcecopy","false")=="true")?true:false;
         
-        var isMacintosh = !($.os.toLowerCase().indexOf("windows")==-1);
+        var isMacintosh = ($.os.toLowerCase().indexOf("windows")==-1);
         var localSaveDir = getPref("localSaveDir",Folder.temp.toString());
         
         var batchFile = (isMacintosh)?"# bash file used to copy After Effects footage to local storage":"@echo off\nREM batch file to copy After Effects footage to local storage";
