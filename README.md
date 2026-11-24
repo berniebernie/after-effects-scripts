@@ -1,6 +1,6 @@
 # after-effects-scripts
 
-Some scripts I wrote and/or modifided to improve my After Effects workflow. A lot of smaller, useful snippets can be found over on [my wiki](http://berniebernie.fr/wiki/Afx_Javascript). Vibecoded but fairly reviewed, as they are not security related.
+Some scripts I (and by I, I mean clankers) wrote and/or modifided to improve my After Effects workflow. A lot of smaller, useful snippets can be found over on [my wiki](http://berniebernie.fr/wiki/Afx_Javascript). Vibecoded but fairly reviewed, as they are not security related.
 
 * [FootageVersionManager](FootageVersionManager.jsx):
 Helps to move up or down versions.
